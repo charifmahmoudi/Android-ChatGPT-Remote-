@@ -1,95 +1,236 @@
 package com.charifmahmoudi.chatgptremote
 
-import kotlinx.coroutines.*
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
-object TunnelJson { val json = Json { ignoreUnknownKeys = true; explicitNulls = false } }
+object TunnelJson {
+    val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
+}
 
+/**
+ * Outbound-only Secure MCP Tunnel client.
+ *
+ * One long-poll loop feeds a bounded worker set. Each response retains the command's opaque
+ * correlation values, and deadlines use the monotonic timestamp captured at poll receipt.
+ */
 class TunnelClient(
-    private val baseUrl: String, private val tunnelId: String, private val apiKey: String,
+    private val baseUrl: String,
+    private val tunnelId: String,
+    private val apiKey: String,
     private val transport: McpTransport,
-    private val http: OkHttpClient = OkHttpClient.Builder().readTimeout(25, TimeUnit.SECONDS).build(),
+    private val http: OkHttpClient = defaultHttpClient(),
     private val nowNanos: () -> Long = System::nanoTime,
 ) {
-    init { require(Regex("^tunnel_[0-9a-f]{32}$").matches(tunnelId)) { "Invalid tunnel ID" }; require(apiKey.isNotBlank()) }
+    init {
+        require(TUNNEL_ID.matches(tunnelId)) { "Invalid tunnel ID" }
+        require(apiKey.isNotBlank()) { "Runtime key is required" }
+    }
+
     private val instanceId = UUID.randomUUID().toString()
-    private var job: Job? = null
+    private val workerPermits = Semaphore(MAX_CONCURRENT_COMMANDS)
+    private var ownerJob: Job? = null
 
     suspend fun run() = coroutineScope {
-        job = coroutineContext.job
+        ownerJob = currentCoroutineContext().job
         var failures = 0
+
         while (isActive) {
-            try { pollOnce().forEach { command -> launch(Dispatchers.IO) { process(command) } }; failures = 0 }
-            catch (_: IOException) { delay(backoff(++failures)) }
-        }
-    }
-    fun stop() = job?.cancel()
-
-    internal fun pollOnce(): List<TunnelCommand> {
-        val request = common(Request.Builder().url("$baseUrl/v1/tunnels/$tunnelId/poll?limit=25&timeout_ms=15000")).get().build()
-        http.newCall(request).execute().use {
-            if (it.code == 204) return emptyList()
-            if (it.code == 401 || it.code == 403) throw SecurityException("Tunnel authorization failed")
-            if (!it.isSuccessful) throw IOException("Tunnel poll failed: HTTP ${it.code}")
-            return TunnelJson.json.decodeFromString<PollEnvelope>(it.body?.string() ?: throw IOException("Missing poll body")).commands
-        }
-    }
-
-    private suspend fun process(command: TunnelCommand) {
-        val received = nowNanos()
-        val timeoutMs = ResponseTimeoutParser.toMillis(command.responseTimeout)
-        if (timeoutMs == 0L) return
-        val work: suspend () -> Unit = {
-            when (command.commandType) {
-                "jsonrpc" -> command.jsonrpc?.let { payload ->
-                    val result = transport.jsonRpc(payload, command.headers)
-                    val type = if (payload.jsonObject["id"] != null) "jsonrpc_response" else "notify_ack"
-                    post(command, TunnelResponse(command.requestId, command.channel, result.body, result.headers, result.code, type))
+            try {
+                pollOnce().forEach { received ->
+                    launch(Dispatchers.IO) {
+                        workerPermits.withPermit { process(received) }
+                    }
                 }
-                "session_termination" -> {
-                    val result = transport.terminate(command.headers)
-                    post(command, TunnelResponse(command.requestId, command.channel, null, result.headers, result.code, "session_termination_response"))
-                }
+                failures = 0
+            } catch (error: IOException) {
+                delay(backoff(++failures))
             }
         }
-        if (timeoutMs == null) work() else {
-            val remaining = timeoutMs - ((nowNanos() - received) / 1_000_000)
-            if (remaining > 0) withTimeoutOrNull(remaining) { work() }
+    }
+
+    fun stop() {
+        ownerJob?.cancel()
+    }
+
+    internal fun pollOnce(): List<ReceivedCommand> {
+        val request = commonHeaders(
+            Request.Builder().url(
+                "$baseUrl/v1/tunnels/$tunnelId/poll?limit=$POLL_LIMIT&timeout_ms=$POLL_TIMEOUT_MS",
+            ),
+        ).get().build()
+
+        http.newCall(request).execute().use { response ->
+            // The protocol anchors every command deadline in this batch to one monotonic instant.
+            val receivedAt = nowNanos()
+            when (response.code) {
+                204 -> return emptyList()
+                401, 403 -> throw SecurityException("Tunnel authorization failed")
+            }
+            if (!response.isSuccessful) {
+                if (response.code == 429 || response.code >= 500) {
+                    throw IOException("Transient tunnel poll failure: HTTP ${response.code}")
+                }
+                throw NonRetryableControlException(response.code)
+            }
+
+            val body = response.body?.string() ?: throw IOException("Missing poll body")
+            return TunnelJson.json.decodeFromString<PollEnvelope>(body).commands.map {
+                ReceivedCommand(it, receivedAt)
+            }
         }
+    }
+
+    private suspend fun process(received: ReceivedCommand) {
+        val command = received.command
+        val timeoutMs = ResponseTimeoutParser.toMillis(command.responseTimeout)
+        val remainingMs = timeoutMs?.minus(
+            TimeUnit.NANOSECONDS.toMillis(nowNanos() - received.receivedAtNanos),
+        )
+
+        // A valid zero or a deadline spent while waiting for a worker is dropped without response.
+        if (remainingMs != null && remainingMs <= 0) return
+
+        val work: suspend () -> Unit = {
+            when (command.commandType) {
+                COMMAND_JSON_RPC -> processJsonRpc(command)
+                COMMAND_SESSION_TERMINATION -> processTermination(command)
+                else -> Unit // Future command types must never be guessed from payload shape.
+            }
+        }
+
+        if (remainingMs == null) {
+            work()
+        } else {
+            withTimeoutOrNull(remainingMs) { work() }
+        }
+    }
+
+    private suspend fun processJsonRpc(command: TunnelCommand) {
+        val payload = command.jsonrpc ?: return
+        val result = transport.jsonRpc(payload, command.headers)
+        val responseType = if (payload.jsonObject["id"] != null) {
+            "jsonrpc_response"
+        } else {
+            "notify_ack"
+        }
+        post(
+            command,
+            TunnelResponse(
+                requestId = command.requestId,
+                channel = command.channel,
+                respJson = result.body,
+                respHeaders = result.headers,
+                respCode = result.code,
+                respType = responseType,
+            ),
+        )
+    }
+
+    private suspend fun processTermination(command: TunnelCommand) {
+        val result = transport.terminate(command.headers)
+        post(
+            command,
+            TunnelResponse(
+                requestId = command.requestId,
+                channel = command.channel,
+                respHeaders = result.headers,
+                respCode = result.code,
+                respType = "session_termination_response",
+            ),
+        )
     }
 
     private suspend fun post(command: TunnelCommand, response: TunnelResponse) {
-        val body = TunnelJson.json.encodeToString(response).toRequestBody("application/json".toMediaType())
+        val body = TunnelJson.json.encodeToString(response)
+            .toRequestBody(JSON_MEDIA_TYPE)
         var attempt = 0
+
         while (currentCoroutineContext().isActive) {
-            val request = common(Request.Builder().url("$baseUrl/v1/tunnels/$tunnelId/response"))
-                .header("X-Tunnel-Shard-Token", command.shardToken).post(body).build()
+            val request = commonHeaders(
+                Request.Builder().url("$baseUrl/v1/tunnels/$tunnelId/response"),
+            ).header(HEADER_SHARD_TOKEN, command.shardToken).post(body).build()
+
             try {
-                http.newCall(request).execute().use {
-                    if (it.isSuccessful || it.code == 404) return
-                    if (it.code !in setOf(408, 429, 502, 503, 504)) throw IOException("Response rejected: HTTP ${it.code}")
+                http.newCall(request).execute().use { httpResponse ->
+                    if (httpResponse.isSuccessful || httpResponse.code == 404) return
+                    if (httpResponse.code !in RETRYABLE_RESPONSE_CODES) {
+                        throw NonRetryableResponseException(httpResponse.code)
+                    }
                 }
-            } catch (e: IOException) { if (attempt >= 4) throw e }
+            } catch (error: NonRetryableResponseException) {
+                throw error
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: IOException) {
+                if (attempt >= MAX_RESPONSE_RETRIES) throw error
+            }
             delay(backoff(++attempt))
         }
     }
 
-    private fun common(builder: Request.Builder) = builder
+    private fun commonHeaders(builder: Request.Builder) = builder
         .header("Authorization", "Bearer $apiKey")
-        .header("User-Agent", "android-kotlin-tunnel-client/0.1.0")
-        .header("X-Tunnel-Client-Name", "android-kotlin-tunnel-client")
-        .header("X-Tunnel-Client-Version", "0.1.0")
+        .header("User-Agent", "$CLIENT_NAME/$CLIENT_VERSION")
+        .header("X-Tunnel-Client-Name", CLIENT_NAME)
+        .header("X-Tunnel-Client-Version", CLIENT_VERSION)
         .header("X-Tunnel-Client-Instance-Id", instanceId)
-        .header("X-Tunnel-MCP-Server-Info", "{\"version\":1,\"channels\":[{\"name\":\"main\"}]}")
-    private fun backoff(attempt: Int): Long = min(30_000L, 500L shl min(attempt, 6)) + Random.nextLong(0, 250)
+        .header("X-Tunnel-MCP-Server-Info", MCP_SERVER_INFO)
+
+    private fun backoff(attempt: Int): Long =
+        min(MAX_BACKOFF_MS, INITIAL_BACKOFF_MS shl min(attempt, 6)) +
+            Random.nextLong(0, BACKOFF_JITTER_MS)
+
+    private class NonRetryableResponseException(code: Int) :
+        IOException("Tunnel response rejected: HTTP $code")
+
+    private class NonRetryableControlException(code: Int) :
+        IllegalStateException("Tunnel poll rejected: HTTP $code")
+
+    private companion object {
+        const val CLIENT_NAME = "android-kotlin-tunnel-client"
+        const val CLIENT_VERSION = "0.2.0"
+        const val POLL_LIMIT = 25
+        const val POLL_TIMEOUT_MS = 15_000
+        const val MAX_CONCURRENT_COMMANDS = 4
+        const val MAX_RESPONSE_RETRIES = 4
+        const val INITIAL_BACKOFF_MS = 500L
+        const val MAX_BACKOFF_MS = 30_000L
+        const val BACKOFF_JITTER_MS = 250L
+        const val COMMAND_JSON_RPC = "jsonrpc"
+        const val COMMAND_SESSION_TERMINATION = "session_termination"
+        const val HEADER_SHARD_TOKEN = "X-Tunnel-Shard-Token"
+        const val MCP_SERVER_INFO = "{\"version\":1,\"channels\":[{\"name\":\"main\"}]}"
+        val TUNNEL_ID = Regex("^tunnel_[0-9a-f]{32}$")
+        val JSON_MEDIA_TYPE = "application/json".toMediaType()
+        val RETRYABLE_RESPONSE_CODES = setOf(408, 429, 502, 503, 504)
+
+        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .readTimeout(25, TimeUnit.SECONDS)
+            .build()
+    }
 }

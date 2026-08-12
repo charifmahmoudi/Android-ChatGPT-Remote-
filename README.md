@@ -1,58 +1,130 @@
 # Android ChatGPT Remote
 
-An experimental standalone Android service that exposes the same phone's paired Wireless ADB as MCP through the public [OpenAI Secure MCP Tunnel client protocol](https://github.com/openai/tunnel-client/blob/master/docs/protocol.md). It needs no Termux process, DDNS, inbound port, or public phone endpoint.
+An experimental standalone Android foreground service that exposes the same phone's paired
+Wireless ADB as MCP through OpenAI's public
+[Secure MCP Tunnel client protocol](https://github.com/openai/tunnel-client/blob/master/docs/protocol.md).
+It requires no Termux process, DDNS record, inbound port, or public phone endpoint.
 
-> Independent community implementation—not an official OpenAI application. It does not impersonate ChatGPT Remote or grant ADB privileges by itself.
+> Independent community implementation—not an official OpenAI application. It does not
+> impersonate ChatGPT Remote, bypass Android's security model, or grant ADB privileges by itself.
 
-## Status
+## What it does
 
-- Kotlin tunnel client: canonical endpoints, authentication, client headers, `200`/`204` polls, correlation, shard-token response header, deadlines, bounded concurrency, retries, and JSON-RPC/session termination.
-- Android foreground service owns pairing, configuration, tunnel polling, retries, and the embedded MCP server; it continues independently of the activity.
-- Minimal activity displays service status and appears only when tunnel credentials, a pairing PIN, or the ADB connection port is required.
-- Embedded MCP server with `adb_status`, `adb_shell`, `adb_packages`, and `adb_properties` tools.
-- Direct Kotlin ADB client with Android 11+ Wireless Debugging PIN pairing.
-- Android Keystore-backed encrypted configuration.
-- Unit tests and GitHub Actions APK build.
-
-## Install and configure
-
-1. Download `android-chatgpt-remote-debug.apk` from the latest successful **Android CI** workflow artifact.
-2. Obtain Secure MCP Tunnel access, a `tunnel_id`, and a runtime key with **Tunnels Read + Use**.
-3. Enable **Developer options → Wireless debugging**. Use split-screen so this app and Settings remain open.
-4. Start the app. Its background service prompts only for what is missing. Tap **Pair device with pairing code**, enter the temporary pairing port and six-digit PIN, then tap **Pair ADB**.
-5. Return to the main Wireless debugging page and copy its separate connection port into **ADB connection port**.
-6. Submit the requested values. The activity may be closed; the foreground service keeps the tunnel and MCP server running with a persistent status notification.
-
-Android may ask you to allow installation from your browser/files app. Debug APKs update only over an APK signed with the same debug key. Secrets are encrypted at rest, backup is disabled, and the configuration screen blocks screenshots.
+- Runs pairing, configuration, tunnel polling, retries, and MCP dispatch in a foreground service.
+- Keeps working when the activity is closed; a persistent notification reports service status.
+- Shows UI fields only when a tunnel credential, pairing PIN, or ADB connection port is needed.
+- Stores the tunnel runtime key and endpoint configuration in Keystore-backed encrypted storage.
+- Provides four MCP tools: `adb_status`, `adb_shell`, `adb_packages`, and `adb_properties`.
+- Uses outbound HTTPS to OpenAI and loopback Wireless ADB; it opens no Internet-facing listener.
 
 ## Architecture
 
-```text
-ChatGPT -> OpenAI Secure MCP Tunnel <- outbound HTTPS <- Android service
-                                                        |
-                                                        +-> embedded MCP -> paired local adbd
+```mermaid
+flowchart TB
+    ChatGPT["ChatGPT connector"] --> Control["OpenAI Secure MCP Tunnel"]
+    Service["Android foreground service"] -->|"outbound HTTPS long poll"| Control
+    Service --> MCP["Embedded MCP dispatcher"]
+    MCP -->|"Kadb over loopback"| ADB["Android wireless adbd"]
+    UI["Status and credential UI"] -. "service intents / status" .-> Service
 ```
 
-## Protocol coverage
+No request is routed directly from the public Internet to the phone. The service polls the tunnel,
+dispatches received JSON-RPC to the embedded MCP implementation, and posts correlated responses.
 
-- `GET /v1/tunnels/{id}/poll?limit=25&timeout_ms=15000`
-- `POST /v1/tunnels/{id}/response`
-- bearer auth, stable client identity, instance ID, MCP server-info, and shard token
-- `jsonrpc` and `session_termination` commands
-- monotonic `response_timeout` deadlines with fail-open malformed values
-- transient poll/terminal-response retry with bounded exponential backoff
-- unknown command types ignored, never reinterpreted
+## Requirements
 
-See [Security](docs/SECURITY.md) and [Development](docs/DEVELOPMENT.md).
+- Samsung Galaxy or another Android 11+ device with **Wireless debugging**.
+- Developer options enabled.
+- Secure MCP Tunnel access, a `tunnel_id`, and a runtime key authorized for tunnel use.
+- Android must allow the app's foreground service and persistent notification.
 
-## Build locally
+The app targets Android API 35 and supports API 26+, but same-device Wireless Debugging pairing
+requires Android 11 or later in practice.
 
-Requires JDK 17, Android SDK 36, and Gradle 8.13.
+## Install and configure
+
+1. Download `android-chatgpt-remote-debug.apk` from a successful **Android CI** run.
+2. Allow installation from the browser or files application and install the APK.
+3. Open the app and allow notifications when Android asks. The foreground service starts.
+4. Enter the tunnel ID and runtime key if requested.
+5. Open **Settings → Developer options → Wireless debugging**. Split-screen is helpful because the
+   temporary pairing dialog must remain open.
+6. Tap **Pair device with pairing code**. Enter its temporary pairing port and six-digit PIN in the
+   app, then tap **Pair ADB**.
+7. Return to the main Wireless debugging screen. Enter its separate **IP address & port** connection
+   port in the app. Do not reuse the temporary pairing port.
+8. Close the activity if desired. Confirm that the persistent notification reports the service as
+   running, then configure the corresponding tunnel in ChatGPT.
+
+```mermaid
+stateDiagram-v2
+    [*] --> NeedTunnel
+    NeedTunnel --> NeedPairing: credentials saved
+    NeedPairing --> Pairing: PIN submitted
+    Pairing --> NeedAdbPort: paired
+    Pairing --> NeedPairing: pairing failed
+    NeedAdbPort --> Connecting: connection port saved
+    Connecting --> Running: client started
+    Running --> NeedTunnel: authorization failed
+    Running --> Error: unexpected failure
+    Error --> Connecting: retry
+    Running --> Stopped: stop
+```
+
+Pairing success is remembered across process restarts. Android may change the Wireless ADB
+connection port after Wireless debugging or the device restarts; reopen the app and update it when
+the stored port no longer works.
+
+## MCP tools
+
+| Tool | Input | Behavior |
+| --- | --- | --- |
+| `adb_status` | none | Runs `id` and reads the device model to validate ADB connectivity. |
+| `adb_shell` | `command` string | Runs one command as Android's `shell` user; input is limited to 8,192 characters. |
+| `adb_packages` | optional `include_system` boolean | Lists third-party packages by default, or all packages when true. |
+| `adb_properties` | none | Returns Android system properties using `getprop`. |
+
+Text output is capped at 1,000,000 characters per tool result. ADB access is powerful even without
+root; require user approval for `adb_shell` calls and inspect every command.
+
+## Tunnel protocol coverage
+
+Implemented:
+
+- canonical `GET /v1/tunnels/{id}/poll` and `POST /v1/tunnels/{id}/response` endpoints;
+- bearer authentication and stable client name, version, instance, and MCP server-info headers;
+- `200` command envelopes and normal `204 No Content` polls;
+- `jsonrpc` and `session_termination` dispatch without guessing unknown command types;
+- per-command correlation using request ID, channel, and shard token;
+- monotonic `response_timeout` deadlines anchored at poll receipt;
+- one poll loop with four concurrent command workers;
+- bounded exponential backoff for network failures and documented terminal-response retry statuses;
+- terminal handling of response `404` and operator-visible tunnel `401`/`403` failures;
+- unknown JSON properties and malformed timeout values accepted for forward compatibility.
+
+Not implemented yet:
+
+- intermediate `jsonrpc_notify` progress delivery;
+- `Retry-After` parsing;
+- explicit multi-channel poll subscriptions;
+- managed Cloudflare credentials, mTLS, and OAuth rewriting;
+- structured tunnel-failure provenance;
+- a release-signed APK or Play Store distribution.
+
+See [Development](docs/DEVELOPMENT.md) for component details and [Security](docs/SECURITY.md)
+before exposing a device.
+
+## Build and test
+
+The supported reproducible path is GitHub Actions. For a local build, install JDK 17, Android SDK
+36, and Gradle 8.13, then run:
 
 ```bash
-gradle testDebugUnitTest lintDebug assembleDebug
+gradle --no-daemon testDebugUnitTest lintDebug assembleDebug
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`.
+The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. CI uploads both the renamed APK
+and test/lint reports. Debug APK upgrades require the same signing key; uninstall an incompatible
+older build first if Android reports a signature conflict.
 
 Licensed under Apache-2.0.

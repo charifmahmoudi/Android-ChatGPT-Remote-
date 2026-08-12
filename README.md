@@ -7,7 +7,8 @@ An experimental standalone Android service that exposes the same phone's paired 
 ## Status
 
 - Kotlin tunnel client: canonical endpoints, authentication, client headers, `200`/`204` polls, correlation, shard-token response header, deadlines, bounded concurrency, retries, and JSON-RPC/session termination.
-- Android foreground service and persistent notification.
+- Android foreground service owns pairing, configuration, tunnel polling, retries, and the embedded MCP server; it continues independently of the activity.
+- Minimal activity displays service status and appears only when tunnel credentials, a pairing PIN, or the ADB connection port is required.
 - Embedded MCP server with `adb_status`, `adb_shell`, `adb_packages`, and `adb_properties` tools.
 - Direct Kotlin ADB client with Android 11+ Wireless Debugging PIN pairing.
 - Android Keystore-backed encrypted configuration.
@@ -18,9 +19,9 @@ An experimental standalone Android service that exposes the same phone's paired 
 1. Download `android-chatgpt-remote-debug.apk` from the latest successful **Android CI** workflow artifact.
 2. Obtain Secure MCP Tunnel access, a `tunnel_id`, and a runtime key with **Tunnels Read + Use**.
 3. Enable **Developer options → Wireless debugging**. Use split-screen so this app and Settings remain open.
-4. Tap **Pair device with pairing code**. Enter the temporary pairing port and six-digit PIN, then tap **Pair ADB**.
+4. Start the app. Its background service prompts only for what is missing. Tap **Pair device with pairing code**, enter the temporary pairing port and six-digit PIN, then tap **Pair ADB**.
 5. Return to the main Wireless debugging page and copy its separate connection port into **ADB connection port**.
-6. Save and start the service, then configure the tunnel in ChatGPT Connectors.
+6. Submit the requested values. The activity may be closed; the foreground service keeps the tunnel and MCP server running with a persistent status notification.
 
 Android may ask you to allow installation from your browser/files app. Debug APKs update only over an APK signed with the same debug key. Secrets are encrypted at rest, backup is disabled, and the configuration screen blocks screenshots.
 
@@ -46,7 +47,7 @@ See [Security](docs/SECURITY.md) and [Development](docs/DEVELOPMENT.md).
 
 ## Build locally
 
-Requires JDK 17, Android SDK 35, and Gradle 8.10.2.
+Requires JDK 17, Android SDK 36, and Gradle 8.13.
 
 ```bash
 gradle testDebugUnitTest lintDebug assembleDebug

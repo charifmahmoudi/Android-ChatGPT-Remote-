@@ -13,4 +13,8 @@ class SecureConfig(context: Context) {
     )
     fun save(config: AppConfig) = prefs.edit().putString("tunnel", config.tunnelId).putString("key", config.apiKey).putString("adb_host", config.adbHost).putInt("adb_port", config.adbPort).apply()
     fun load() = AppConfig(prefs.getString("tunnel", "")!!, prefs.getString("key", "")!!, prefs.getString("adb_host", "127.0.0.1")!!, prefs.getInt("adb_port", 0))
+    fun saveTunnel(id: String, key: String) = prefs.edit().putString("tunnel", id).putString("key", key).apply()
+    fun saveAdbEndpoint(host: String, port: Int) = prefs.edit().putString("adb_host", host).putInt("adb_port", port).apply()
+    fun markPaired() = prefs.edit().putBoolean("adb_paired", true).apply()
+    fun isPaired() = prefs.getBoolean("adb_paired", false)
 }

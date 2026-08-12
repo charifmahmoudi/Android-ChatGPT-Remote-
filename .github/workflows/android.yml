@@ -17,9 +17,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android API 36\n        run: sdkmanager \"platforms;android-36\"\n      - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10.2'
+          gradle-version: '8.13'
       - name: Unit tests, lint, and APK
         run: gradle --no-daemon testDebugUnitTest lintDebug assembleDebug
       - name: Collect APK

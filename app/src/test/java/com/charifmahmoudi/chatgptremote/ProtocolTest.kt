@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 class ProtocolTest {
     @Test fun `decodes documented command and ignores additions`() {
@@ -22,5 +23,10 @@ class ProtocolTest {
             override suspend fun jsonRpc(payload: JsonElement, headers: Map<String, List<String>>) = error("unused")
             override suspend fun terminate(headers: Map<String, List<String>>) = error("unused")
         })
+    }
+    @Test fun `embedded MCP advertises ADB tools`() = runBlocking {
+        val request = TunnelJson.json.parseToJsonElement("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}""")
+        val response = AdbMcpTransport("127.0.0.1", 5555).jsonRpc(request, emptyMap()).body.toString()
+        assertTrue(response.contains("adb_shell")); assertTrue(response.contains("adb_packages")); assertTrue(response.contains("adb_status"))
     }
 }

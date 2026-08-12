@@ -1,6 +1,6 @@
 # Android ChatGPT Remote
 
-An experimental Android/Kotlin implementation of the public [OpenAI Secure MCP Tunnel client protocol](https://github.com/openai/tunnel-client/blob/master/docs/protocol.md). It lets an Android phone keep a private MCP server reachable through an outbound HTTPS long-poll—no DDNS, inbound port, or public phone endpoint.
+An experimental standalone Android service that exposes the same phone's paired Wireless ADB as MCP through the public [OpenAI Secure MCP Tunnel client protocol](https://github.com/openai/tunnel-client/blob/master/docs/protocol.md). It needs no Termux process, DDNS, inbound port, or public phone endpoint.
 
 > Independent community implementation—not an official OpenAI application. It does not impersonate ChatGPT Remote or grant ADB privileges by itself.
 
@@ -8,18 +8,19 @@ An experimental Android/Kotlin implementation of the public [OpenAI Secure MCP T
 
 - Kotlin tunnel client: canonical endpoints, authentication, client headers, `200`/`204` polls, correlation, shard-token response header, deadlines, bounded concurrency, retries, and JSON-RPC/session termination.
 - Android foreground service and persistent notification.
-- Local Streamable HTTP MCP forwarding with multi-valued headers.
+- Embedded MCP server with `adb_status`, `adb_shell`, `adb_packages`, and `adb_properties` tools.
+- Direct Kotlin ADB client with Android 11+ Wireless Debugging PIN pairing.
 - Android Keystore-backed encrypted configuration.
 - Unit tests and GitHub Actions APK build.
-- Same-device ADB MCP tools: **not yet included**. Add a paired Wireless Debugging transport behind `McpTransport`; never expose `adbd` publicly.
 
 ## Install and configure
 
 1. Download `android-chatgpt-remote-debug.apk` from the latest successful **Android CI** workflow artifact.
 2. Obtain Secure MCP Tunnel access, a `tunnel_id`, and a runtime key with **Tunnels Read + Use**.
-3. Run a Streamable HTTP MCP server on the phone or a private address reachable by it.
-4. Enter the tunnel ID, runtime key, and MCP URL (for example `http://127.0.0.1:8765/mcp`) and start the service.
-5. Configure the tunnel in ChatGPT Connectors while the client is healthy.
+3. Enable **Developer options → Wireless debugging**. Use split-screen so this app and Settings remain open.
+4. Tap **Pair device with pairing code**. Enter the temporary pairing port and six-digit PIN, then tap **Pair ADB**.
+5. Return to the main Wireless debugging page and copy its separate connection port into **ADB connection port**.
+6. Save and start the service, then configure the tunnel in ChatGPT Connectors.
 
 Android may ask you to allow installation from your browser/files app. Debug APKs update only over an APK signed with the same debug key. Secrets are encrypted at rest, backup is disabled, and the configuration screen blocks screenshots.
 
@@ -28,7 +29,7 @@ Android may ask you to allow installation from your browser/files app. Debug APK
 ```text
 ChatGPT -> OpenAI Secure MCP Tunnel <- outbound HTTPS <- Android service
                                                         |
-                                                        +-> private/local MCP server
+                                                        +-> embedded MCP -> paired local adbd
 ```
 
 ## Protocol coverage

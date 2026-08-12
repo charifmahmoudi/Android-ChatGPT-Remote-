@@ -9,6 +9,6 @@ This app creates a powerful bridge. Treat the runtime key and every MCP tool as 
 
 ## ADB warning
 
-This release does not bundle ADB. A future ADB transport must pair with Wireless Debugging, keep its key in Keystore, require visible approval for arbitrary shell commands, impose time/output limits, and never expose the ADB daemon or pairing port. Prefer typed tools over `shell(command)`.
+The app pairs with same-device Wireless Debugging and exposes typed inspection tools plus `adb_shell`. Commands run as Android's `shell` user, not root. Output is capped at 1 MB and command input at 8 KiB. The app never exposes the ADB daemon or pairing port to the Internet. Because `adb_shell` is powerful, configure ChatGPT tool policy to require approval for every call and review the exact command.
 
 Never post keys, tunnel IDs, ADB keys, device logs, or MCP bodies in public issues. Revoke exposed keys immediately.

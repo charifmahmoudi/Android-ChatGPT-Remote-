@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <application android:allowBackup="false" android:label="ChatGPT MCP Remote" android:theme="@style/Theme.AppCompat.DayNight">
+    <application android:allowBackup="false" android:usesCleartextTraffic="false" android:label="ChatGPT ADB MCP" android:theme="@style/Theme.AppCompat.DayNight">
         <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
         <service android:name=".TunnelService" android:exported="false" android:foregroundServiceType="dataSync" />
     </application>

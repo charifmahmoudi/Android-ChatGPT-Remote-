@@ -37,8 +37,10 @@ execution and is the highest-risk tool.
 
 ## Secret handling
 
-The app does not intentionally log runtime keys, tunnel IDs, ADB pairing PINs, command bodies, or
-device output. Pairing PIN fields and runtime keys use password-style input and are cleared after
+The app does not intentionally log runtime keys, opaque identifiers, ADB pairing data, command
+bodies, exception messages, URLs, or device output. Diagnostics contain only bounded operational
+metadata and safe exception class names, are capped at 500 events, and persist in private app
+storage. Pairing PIN fields and runtime keys use password-style input and are cleared after
 submission. Android backup is disabled. ADB failures return only an exception class, not its message.
 
 Encrypted storage protects data at rest but does not protect a compromised, unlocked, rooted, or

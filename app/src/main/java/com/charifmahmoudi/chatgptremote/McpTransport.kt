@@ -16,14 +16,19 @@ interface McpTransport {
  * A fresh ADB connection is opened per tool call. This avoids sharing a potentially stale Kadb
  * socket across Android network changes and concurrent tunnel commands.
  */
-class AdbMcpTransport(private val host: String, private val port: Int) : McpTransport {
+class AdbMcpTransport(
+    private val host: String,
+    private val port: Int,
+    private val onDiagnostic: (String) -> Unit = {},
+) : McpTransport {
     override suspend fun jsonRpc(
         payload: JsonElement,
         headers: Map<String, List<String>>,
     ): McpResult = withContext(Dispatchers.IO) {
-        val request = payload.jsonObject
+        val request = payload as? JsonObject
+            ?: return@withContext McpResult(200, error(JsonNull, -32600, "Invalid Request"), JSON_HEADERS)
         val id = request["id"] ?: JsonNull
-        val response = when (request["method"]?.jsonPrimitive?.contentOrNull) {
+        val response = when ((request["method"] as? JsonPrimitive)?.contentOrNull) {
             "initialize" -> result(
                 id,
                 buildJsonObject {
@@ -38,48 +43,71 @@ class AdbMcpTransport(private val host: String, private val port: Int) : McpTran
             "notifications/initialized" -> null
             "ping" -> result(id, buildJsonObject {})
             "tools/list" -> result(id, toolList())
-            "tools/call" -> callTool(id, request["params"]?.jsonObject)
-            else -> error(id, -32601, "Method not found")
+            "tools/call" -> callTool(id, request["params"] as? JsonObject)
+            else -> if (request["id"] == null) null else error(id, -32601, "Method not found")
         }
         if (response == null) {
             McpResult(204, null, emptyMap())
         } else {
-            McpResult(200, response, mapOf("Content-Type" to listOf("application/json")))
+            McpResult(200, response, JSON_HEADERS)
         }
     }
 
     override suspend fun terminate(headers: Map<String, List<String>>) = McpResult(204, null, emptyMap())
 
     private fun callTool(id: JsonElement, params: JsonObject?): JsonObject {
-        val name = params?.get("name")?.jsonPrimitive?.contentOrNull ?: return error(id, -32602, "Missing tool name")
-        val args = params["arguments"]?.jsonObject ?: buildJsonObject {}
+        val name = (params?.get("name") as? JsonPrimitive)?.contentOrNull
+            ?: return error(id, -32602, "Missing tool name")
+        val arguments = params["arguments"]
+        if (arguments != null && arguments !is JsonObject) {
+            return error(id, -32602, "Tool arguments must be an object")
+        }
+        val args = arguments as? JsonObject ?: buildJsonObject {}
         return try {
+            onDiagnostic("tool start type=${knownToolType(name)}")
             val text = Kadb.create(host, port).use { adb ->
                 when (name) {
                     "adb_status" -> adb.shell("id; getprop ro.product.model").output
                     "adb_shell" -> {
-                        val command = args["command"]?.jsonPrimitive?.contentOrNull ?: return error(id, -32602, "Missing command")
+                        val command = (args["command"] as? JsonPrimitive)?.contentOrNull
+                            ?: return error(id, -32602, "Missing command")
                         require(command.length in 1..MAX_COMMAND_LENGTH) {
                             "Command must contain 1–$MAX_COMMAND_LENGTH characters"
                         }
                         adb.shell(command).let { "exit_code=${it.exitCode}\n${it.output}" }
                     }
-                    "adb_packages" -> adb.shell(if (args["include_system"]?.jsonPrimitive?.booleanOrNull == true) "pm list packages" else "pm list packages -3").output
+                    "adb_packages" -> adb.shell(if ((args["include_system"] as? JsonPrimitive)?.booleanOrNull == true) "pm list packages" else "pm list packages -3").output
                     "adb_properties" -> adb.shell("getprop").output
                     else -> return error(id, -32602, "Unknown tool")
                 }
             }
+            onDiagnostic("tool complete type=${knownToolType(name)} output_chars=${text.length.coerceAtMost(MAX_OUTPUT_LENGTH)}")
             toolResult(id, text.take(MAX_OUTPUT_LENGTH), isError = false)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
         } catch (e: Exception) {
+            onDiagnostic("tool failed type=${knownToolType(name)} chain=${e.safeClassChain()}")
             // Return only the exception class: messages may contain device or command details.
             toolResult(id, "ADB error: ${e.javaClass.simpleName}", isError = true)
         }
     }
 
+    private fun knownToolType(name: String) = when (name) {
+        "adb_status" -> "status"
+        "adb_shell" -> "shell"
+        "adb_packages" -> "packages"
+        "adb_properties" -> "properties"
+        else -> "unknown"
+    }
+
+    private fun Throwable.safeClassChain() = generateSequence(this) { it.cause }
+        .take(4)
+        .joinToString(">") { it.javaClass.simpleName.ifBlank { "Throwable" } }
+
     private fun toolList() = buildJsonObject {
         putJsonArray("tools") {
             add(tool("adb_status", "Check the paired ADB connection", emptyMap()))
-            add(tool("adb_shell", "Run one command as Android's shell user", mapOf("command" to "string")))
+            add(tool("adb_shell", "Run one command as Android's shell user", mapOf("command" to "string"), setOf("command")))
             add(tool("adb_packages", "List installed package names", mapOf("include_system" to "boolean")))
             add(tool("adb_properties", "Read Android system properties", emptyMap()))
         }
@@ -95,13 +123,21 @@ class AdbMcpTransport(private val host: String, private val port: Int) : McpTran
         },
     )
 
-    private fun tool(name: String, description: String, properties: Map<String, String>) = buildJsonObject {
+    private fun tool(
+        name: String,
+        description: String,
+        properties: Map<String, String>,
+        required: Set<String> = emptySet(),
+    ) = buildJsonObject {
         put("name", name)
         put("description", description)
         putJsonObject("inputSchema") {
             put("type", "object")
             putJsonObject("properties") {
                 properties.forEach { (key, type) -> putJsonObject(key) { put("type", type) } }
+            }
+            if (required.isNotEmpty()) {
+                putJsonArray("required") { required.forEach { add(it) } }
             }
         }
     }
@@ -110,9 +146,10 @@ class AdbMcpTransport(private val host: String, private val port: Int) : McpTran
 
     companion object {
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
-        private const val SERVER_VERSION = "0.3.2"
+        private const val SERVER_VERSION = "0.4.0"
         private const val MAX_COMMAND_LENGTH = 8_192
         private const val MAX_OUTPUT_LENGTH = 1_000_000
+        private val JSON_HEADERS = mapOf("Content-Type" to listOf("application/json"))
 
         suspend fun pair(host: String, port: Int, pin: String) = withContext(Dispatchers.IO) {
             require(pin.matches(Regex("^\\d{6}$"))) { "Pairing PIN must contain six digits" }

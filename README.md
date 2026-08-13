@@ -28,15 +28,21 @@ when tapped.
 The status becomes **Running** only after the tunnel endpoint answers a poll successfully. Until
 then it remains **Connecting**, so the dashboard does not claim that an unverified connection works.
 
-The **Copy diagnostic logs** button copies a bounded in-memory support report to the Android
-clipboard. It records service state changes, connection/retry events, command counts, expiry, and
-unsupported command events. It intentionally excludes credentials, tunnel and request identifiers,
+The **Copy diagnostic logs** button copies a bounded support report to the Android clipboard. The
+latest 500 events persist in the app's private storage across process restarts. Logs include service
+lifecycle/action/state, safe exception-class chains, HTTP status classes, retry attempt and delay,
+connection loss/recovery, command counts, worker failures, deadline expiry, response delivery, and
+ADB tool type/outcome. They intentionally exclude credentials, tunnel/request/shard identifiers,
 pairing PINs and ports, JSON-RPC bodies, shell commands, ADB output, URLs, and exception messages.
-Logs reset when the application process is restarted.
 
 Version 0.3.2 moves synchronous tunnel HTTP polling to the I/O dispatcher. Earlier builds could
 transition from **Connecting** to **Error** immediately because the foreground service launched the
 poll loop from its main coroutine context.
+
+Version 0.4.0 adds a fixed four-worker, bounded command queue; isolates per-command failures from
+the poll loop; hardens malformed MCP input handling and cancellation; and uses Android's
+`specialUse` foreground-service type. The previous `dataSync` type is limited to six background
+hours on Android 15 and is not appropriate for a persistent, user-controlled bridge.
 
 ## Architecture
 
@@ -118,7 +124,7 @@ Implemented:
 - `jsonrpc` and `session_termination` dispatch without guessing unknown command types;
 - per-command correlation using request ID, channel, and shard token;
 - monotonic `response_timeout` deadlines anchored at poll receipt;
-- one poll loop with four concurrent command workers;
+- one poll loop with a bounded queue and four isolated command workers;
 - bounded exponential backoff for network failures and documented terminal-response retry statuses;
 - terminal handling of response `404` and operator-visible tunnel `401`/`403` failures;
 - unknown JSON properties and malformed timeout values accepted for forward compatibility.

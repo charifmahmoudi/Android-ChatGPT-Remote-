@@ -20,12 +20,15 @@ class TunnelService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        DiagnosticLog.initialize(this)
+        DiagnosticLog.record("service", "onCreate")
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Starting background service…"))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        DiagnosticLog.record("service", "onStart action=${actionName(intent?.action)} startId=$startId")
         when (intent?.action) {
             ACTION_SET_TUNNEL -> acceptTunnelCredentials(intent)
             ACTION_PAIR -> pairAdb(intent)
@@ -69,7 +72,8 @@ class TunnelService : LifecycleService() {
                 )
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                DiagnosticLog.record("adb", "pair failed chain=${error.safeClassChain()}")
                 publish(
                     ServicePhase.NEED_PAIRING,
                     "Pairing failed. Open a fresh pairing-code dialog and retry",
@@ -110,9 +114,16 @@ class TunnelService : LifecycleService() {
                 baseUrl = OPENAI_API,
                 tunnelId = config.tunnelId,
                 apiKey = config.apiKey,
-                transport = AdbMcpTransport(config.adbHost, config.adbPort),
+                transport = AdbMcpTransport(
+                    config.adbHost,
+                    config.adbPort,
+                    onDiagnostic = { event -> DiagnosticLog.record("adb", event) },
+                ),
                 onConnected = {
                     publish(ServicePhase.RUNNING, "Tunnel connected · ADB MCP ready")
+                },
+                onConnectionLost = {
+                    publish(ServicePhase.CONNECTING, "Tunnel interrupted · reconnecting automatically")
                 },
                 onDiagnostic = { event -> DiagnosticLog.record("tunnel", event) },
             )
@@ -173,6 +184,7 @@ class TunnelService : LifecycleService() {
         .build()
 
     override fun onDestroy() {
+        DiagnosticLog.record("service", "onDestroy")
         cancelWork()
         ServiceState.publish(this, ServicePhase.STOPPED, "Service stopped")
         super.onDestroy()
@@ -198,5 +210,19 @@ class TunnelService : LifecycleService() {
         private val TUNNEL_ID = Regex("^tunnel_[0-9a-f]{32}$")
 
         private fun isLoopback(host: String) = host == "127.0.0.1" || host == "localhost"
+
+        private fun actionName(action: String?) = when (action) {
+            ACTION_SET_TUNNEL -> "set_tunnel"
+            ACTION_PAIR -> "pair"
+            ACTION_SET_ADB -> "set_adb"
+            ACTION_RETRY -> "retry"
+            ACTION_STOP -> "stop"
+            null -> "restore"
+            else -> "unknown"
+        }
+
+        private fun Throwable.safeClassChain(): String = generateSequence(this) { it.cause }
+            .take(4)
+            .joinToString(">") { it.javaClass.simpleName.ifBlank { "Throwable" } }
     }
 }

@@ -43,10 +43,14 @@ sequenceDiagram
 re-evaluates encrypted configuration on a null/default start intent. It owns one `TunnelClient` job
 at a time; configuration changes and Stop cancel the existing job before starting another.
 
-`TunnelClient` uses one long-poll loop and a semaphore-limited pool of four command coroutines.
+`TunnelClient` uses one long-poll loop and a capacity-100 channel feeding exactly four workers.
 Every command in a poll batch receives the same monotonic receipt timestamp. Time spent waiting for
 a worker counts against `response_timeout`. Expired work is dropped without contacting MCP or
-posting a late response, as required by the tunnel protocol.
+posting a late response, as required by the tunnel protocol. Workers isolate command failures so a
+single ADB or response-delivery failure cannot cancel polling or unrelated commands.
+
+The service is declared as `specialUse`, with a manifest subtype explaining the persistent Secure
+MCP/ADB bridge. Do not change it to `dataSync`: Android 15 limits that type to six background hours.
 
 ## Error policy
 
@@ -68,7 +72,8 @@ gradle --no-daemon testDebugUnitTest lintDebug assembleDebug
 ```
 
 Unit tests cover documented decoding, unknown properties, timeout grammar and overflow,
-correlation-model defaults, tunnel ID validation, and embedded MCP tool discovery. Android lint
+correlation-model defaults, actual HTTP poll paths/headers/auth failures through MockWebServer,
+tunnel ID validation, malformed MCP input, notifications, and embedded MCP tool discovery. Android lint
 checks manifest and application APIs. APK assembly proves the source compiles against the pinned
 toolchain.
 

@@ -7,16 +7,51 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 
 class ProtocolTest {
+    @Test
+    fun `poll sends canonical path and diagnostic headers`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(204))
+            val client = TunnelClient(
+                server.url("/").toString().removeSuffix("/"),
+                "tunnel_0123456789abcdef0123456789abcdef",
+                "runtime-key",
+                UnusedTransport,
+            )
+
+            assertTrue(client.pollOnce().isEmpty())
+            val request = server.takeRequest()
+            assertEquals("/v1/tunnels/tunnel_0123456789abcdef0123456789abcdef/poll?limit=25&timeout_ms=15000", request.path)
+            assertEquals("Bearer runtime-key", request.getHeader("Authorization"))
+            assertEquals("android-kotlin-tunnel-client", request.getHeader("X-Tunnel-Client-Name"))
+            assertEquals("0.4.0", request.getHeader("X-Tunnel-Client-Version"))
+        }
+    }
+
+    @Test(expected = SecurityException::class)
+    fun `poll exposes authorization failures for operator action`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(401))
+            TunnelClient(
+                server.url("/").toString().removeSuffix("/"),
+                "tunnel_0123456789abcdef0123456789abcdef",
+                "runtime-key",
+                UnusedTransport,
+            ).pollOnce()
+        }
+    }
+
     @Test
     fun `diagnostic log exports version and bounded events`() {
         DiagnosticLog.clear()
         repeat(300) { DiagnosticLog.record("test", "event=$it") }
 
-        val report = DiagnosticLog.export("0.3.2", 5)
+        val report = DiagnosticLog.export("0.4.0", 6)
 
-        assertTrue(report.contains("Version: 0.3.2 (5)"))
+        assertTrue(report.contains("Version: 0.4.0 (6)"))
         assertTrue(report.contains("event=299"))
         assertTrue(!report.contains("event=0\n"))
         assertEquals(250, report.lineSequence().count { "[test]" in it })
@@ -84,6 +119,37 @@ class ProtocolTest {
         listOf("adb_status", "adb_shell", "adb_packages", "adb_properties").forEach {
             assertTrue(response.contains(it))
         }
+    }
+
+    @Test
+    fun `embedded MCP returns invalid request instead of throwing on non-object payload`() = runBlocking {
+        val response = AdbMcpTransport("127.0.0.1", 5555)
+            .jsonRpc(JsonPrimitive("invalid"), emptyMap())
+            .body
+            .toString()
+        assertTrue(response.contains("-32600"))
+    }
+
+    @Test
+    fun `unknown JSON-RPC notification has no response body`() = runBlocking {
+        val request = TunnelJson.json.parseToJsonElement(
+            """{"jsonrpc":"2.0","method":"future/notification"}""",
+        )
+        val result = AdbMcpTransport("127.0.0.1", 5555).jsonRpc(request, emptyMap())
+        assertEquals(204, result.code)
+        assertNull(result.body)
+    }
+
+    @Test
+    fun `tool call rejects non-object arguments`() = runBlocking {
+        val request = TunnelJson.json.parseToJsonElement(
+            """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"adb_shell","arguments":"bad"}}""",
+        )
+        val response = AdbMcpTransport("127.0.0.1", 5555)
+            .jsonRpc(request, emptyMap())
+            .body
+            .toString()
+        assertTrue(response.contains("-32602"))
     }
 
     private object UnusedTransport : McpTransport {

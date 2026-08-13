@@ -11,8 +11,8 @@ android {
         applicationId = "com.charifmahmoudi.chatgptremote"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.2"
+        versionCode = 6
+        versionName = "0.4.0"
     }
     buildTypes {
         release {
@@ -37,4 +37,5 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.flyfishxu:kadb:2.1.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

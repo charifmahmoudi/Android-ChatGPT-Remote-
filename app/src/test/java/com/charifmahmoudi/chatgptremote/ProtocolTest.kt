@@ -47,14 +47,14 @@ class ProtocolTest {
     @Test
     fun `diagnostic log exports version and bounded events`() {
         DiagnosticLog.clear()
-        repeat(300) { DiagnosticLog.record("test", "event=$it") }
+        repeat(600) { DiagnosticLog.record("test", "event=$it") }
 
         val report = DiagnosticLog.export("0.4.0", 6)
 
         assertTrue(report.contains("Version: 0.4.0 (6)"))
-        assertTrue(report.contains("event=299"))
+        assertTrue(report.contains("event=599"))
         assertTrue(!report.contains("event=0\n"))
-        assertEquals(250, report.lineSequence().count { "[test]" in it })
+        assertEquals(500, report.lineSequence().count { "[test]" in it })
     }
 
     @Test

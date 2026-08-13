@@ -28,6 +28,12 @@ when tapped.
 The status becomes **Running** only after the tunnel endpoint answers a poll successfully. Until
 then it remains **Connecting**, so the dashboard does not claim that an unverified connection works.
 
+The **Copy diagnostic logs** button copies a bounded in-memory support report to the Android
+clipboard. It records service state changes, connection/retry events, command counts, expiry, and
+unsupported command events. It intentionally excludes credentials, tunnel and request identifiers,
+pairing PINs and ports, JSON-RPC bodies, shell commands, ADB output, URLs, and exception messages.
+Logs reset when the application process is restarted.
+
 ## Architecture
 
 ```mermaid

@@ -20,6 +20,7 @@ object ServiceState {
 
     fun publish(context: Context, phase: ServicePhase, message: String) {
         current = ServiceStatus(phase, message)
+        DiagnosticLog.record("service", "state=${phase.name}")
         context.sendBroadcast(
             Intent(ACTION_STATUS)
                 .setPackage(context.packageName)

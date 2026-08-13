@@ -2,6 +2,8 @@ package com.charifmahmoudi.chatgptremote
 
 import android.Manifest
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -14,6 +16,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
@@ -133,6 +136,7 @@ class MainActivity : AppCompatActivity() {
         }
         retryButton.setOnClickListener { sendServiceAction(TunnelService.ACTION_RETRY) }
         stopButton.setOnClickListener { sendServiceAction(TunnelService.ACTION_STOP) }
+        findViewById<MaterialButton>(R.id.copyLogsButton).setOnClickListener { copyLogs() }
     }
 
     private fun render(status: ServiceStatus) {
@@ -192,6 +196,14 @@ class MainActivity : AppCompatActivity() {
             this,
             Intent(this, TunnelService::class.java).setAction(action).apply(extras),
         )
+    }
+
+    private fun copyLogs() {
+        val report = DiagnosticLog.export(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(
+            ClipData.newPlainText(getString(R.string.diagnostic_logs), report),
+        )
+        Toast.makeText(this, R.string.logs_copied, Toast.LENGTH_SHORT).show()
     }
 
     private fun requestNotificationPermission() {

@@ -114,6 +114,7 @@ class TunnelService : LifecycleService() {
                 onConnected = {
                     publish(ServicePhase.RUNNING, "Tunnel connected · ADB MCP ready")
                 },
+                onDiagnostic = { event -> DiagnosticLog.record("tunnel", event) },
             )
             tunnelClient = client
             try {

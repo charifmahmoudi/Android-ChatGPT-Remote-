@@ -30,5 +30,9 @@
     <string name="pair_device">Pair device</string>
     <string name="retry">Retry connection</string>
     <string name="stop">Stop service</string>
+    <string name="diagnostic_logs">ADB Remote diagnostic logs</string>
+    <string name="diagnostic_help">Diagnostic logs contain service states and connection events only. Credentials, commands, identifiers, and device output are excluded.</string>
+    <string name="copy_logs">Copy diagnostic logs</string>
+    <string name="logs_copied">Diagnostic logs copied</string>
     <string name="version_format">Version %1$s · build %2$d</string>
 </resources>

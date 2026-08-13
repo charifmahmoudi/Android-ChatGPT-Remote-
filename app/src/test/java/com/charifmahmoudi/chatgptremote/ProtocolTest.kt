@@ -10,6 +10,19 @@ import org.junit.Test
 
 class ProtocolTest {
     @Test
+    fun `diagnostic log exports version and bounded events`() {
+        DiagnosticLog.clear()
+        repeat(300) { DiagnosticLog.record("test", "event=$it") }
+
+        val report = DiagnosticLog.export("0.3.1", 4)
+
+        assertTrue(report.contains("Version: 0.3.1 (4)"))
+        assertTrue(report.contains("event=299"))
+        assertTrue(!report.contains("event=0\n"))
+        assertEquals(250, report.lineSequence().count { "[test]" in it })
+    }
+
+    @Test
     fun `decodes documented command and ignores additions`() {
         val body = """
             {

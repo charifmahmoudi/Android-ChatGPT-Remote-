@@ -46,6 +46,7 @@ class TunnelClient(
     private val http: OkHttpClient = defaultHttpClient(),
     private val nowNanos: () -> Long = System::nanoTime,
     private val onConnected: () -> Unit = {},
+    private val onDiagnostic: (String) -> Unit = {},
 ) {
     init {
         require(TUNNEL_ID.matches(tunnelId)) { "Invalid tunnel ID" }
@@ -66,8 +67,10 @@ class TunnelClient(
                 val commands = pollOnce()
                 if (!connected) {
                     connected = true
+                    onDiagnostic("poll connected")
                     onConnected()
                 }
+                if (commands.isNotEmpty()) onDiagnostic("poll commands=${commands.size}")
                 commands.forEach { received ->
                     launch(Dispatchers.IO) {
                         workerPermits.withPermit { process(received) }
@@ -75,6 +78,7 @@ class TunnelClient(
                 }
                 failures = 0
             } catch (error: IOException) {
+                onDiagnostic("poll retry=${failures + 1}")
                 delay(backoff(++failures))
             }
         }
@@ -120,13 +124,16 @@ class TunnelClient(
         )
 
         // A valid zero or a deadline spent while waiting for a worker is dropped without response.
-        if (remainingMs != null && remainingMs <= 0) return
+        if (remainingMs != null && remainingMs <= 0) {
+            onDiagnostic("command expired before dispatch")
+            return
+        }
 
         val work: suspend () -> Unit = {
             when (command.commandType) {
                 COMMAND_JSON_RPC -> processJsonRpc(command)
                 COMMAND_SESSION_TERMINATION -> processTermination(command)
-                else -> Unit // Future command types must never be guessed from payload shape.
+                else -> onDiagnostic("unsupported command type")
             }
         }
 
@@ -195,6 +202,7 @@ class TunnelClient(
                 throw error
             } catch (error: IOException) {
                 if (attempt >= MAX_RESPONSE_RETRIES) throw error
+                onDiagnostic("response retry=${attempt + 1}")
             }
             delay(backoff(++attempt))
         }
@@ -220,7 +228,7 @@ class TunnelClient(
 
     private companion object {
         const val CLIENT_NAME = "android-kotlin-tunnel-client"
-        const val CLIENT_VERSION = "0.2.0"
+        const val CLIENT_VERSION = "0.3.1"
         const val POLL_LIMIT = 25
         const val POLL_TIMEOUT_MS = 15_000
         const val MAX_CONCURRENT_COMMANDS = 4

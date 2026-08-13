@@ -192,6 +192,22 @@
         <com.google.android.material.button.MaterialButton android:id="@+id/stopButton" style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/stop" android:textColor="@color/red_400" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/diagnostic_help"
+            android:textColor="@color/slate_400"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/copyLogsButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/copy_logs" />
+
+        <TextView
             android:id="@+id/versionText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

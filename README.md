@@ -25,8 +25,9 @@ The dashboard is only an Android activity: closing it does not stop the service.
 notification is required by Android for a long-running foreground service and opens the dashboard
 when tapped.
 
-The status becomes **Running** only after the tunnel endpoint answers a poll successfully. Until
-then it remains **Connecting**, so the dashboard does not claim that an unverified connection works.
+The status becomes **Running** only after a real local ADB shell probe succeeds and the tunnel
+endpoint answers a poll successfully. A later ADB command failure immediately removes the green
+state and requests an updated ADB endpoint, even if the remote tunnel itself remains connected.
 
 The **Copy diagnostic logs** button copies a bounded support report to the Android clipboard. The
 latest 500 events persist in the app's private storage across process restarts. Logs include service
@@ -78,10 +79,12 @@ requires Android 11 or later in practice.
 2. Allow installation from the browser or files application and install the APK.
 3. Open the app and allow notifications when Android asks. The foreground service starts.
 4. Enter the tunnel ID and runtime key if requested.
-5. Open **Settings → Developer options → Wireless debugging**. Split-screen is helpful because the
-   temporary pairing dialog must remain open.
-6. Tap **Pair device with pairing code**. Enter its temporary pairing port and six-digit PIN in the
-   app, then tap **Pair ADB**.
+5. Put **Settings on the top half** and **ADB Remote on the bottom half** using Samsung split screen.
+   In Settings, open **Developer options → Wireless debugging**.
+6. Tap **Pair device with pairing code** in the top Settings window. Leave that dialog open and
+   visible. In the bottom app window, enter its temporary pairing port and six-digit PIN, then tap
+   **Pair device**. This confirmed layout prevents the temporary dialog from disappearing while you
+   copy the PIN.
 7. Return to the main Wireless debugging screen. Enter its separate **IP address & port** connection
    port in the app. Do not reuse the temporary pairing port.
 8. Close the activity if desired. Confirm that the persistent notification reports the service as
@@ -95,7 +98,9 @@ stateDiagram-v2
     Pairing --> NeedAdbPort: paired
     Pairing --> NeedPairing: pairing failed
     NeedAdbPort --> Connecting: connection port saved
-    Connecting --> Running: client started
+    Connecting --> NeedAdbPort: ADB probe fails
+    Connecting --> Running: ADB probe and tunnel poll succeed
+    Running --> NeedAdbPort: later ADB failure
     Running --> NeedTunnel: authorization failed
     Running --> Error: unexpected failure
     Error --> Connecting: retry
@@ -105,6 +110,9 @@ stateDiagram-v2
 Pairing success is remembered across process restarts. Android may change the Wireless ADB
 connection port after Wireless debugging or the device restarts; reopen the app and update it when
 the stored port no longer works.
+
+For the complete Samsung split-screen procedure, status meanings, ChatGPT connection steps,
+diagnostic interpretation, and recovery instructions, see the [User guide](docs/USER_GUIDE.md).
 
 ## MCP tools
 
@@ -142,13 +150,13 @@ Not implemented yet:
 - structured tunnel-failure provenance;
 - a release-signed APK or Play Store distribution.
 
-See [Development](docs/DEVELOPMENT.md) for component details and [Security](docs/SECURITY.md)
-before exposing a device.
+See the [User guide](docs/USER_GUIDE.md), [Development guide](docs/DEVELOPMENT.md), and
+[Security model](docs/SECURITY.md) before exposing a device.
 
 ## Build and test
 
 The supported reproducible path is GitHub Actions. For a local build, install JDK 17, Android SDK
-36, and Gradle 8.13, then run:
+36, and Gradle 8.10.2, then run:
 
 ```bash
 gradle --no-daemon testDebugUnitTest lintDebug assembleDebug

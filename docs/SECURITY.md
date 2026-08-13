@@ -35,6 +35,10 @@ execution and is the highest-risk tool.
 - Do not expose the tunnel to untrusted users or autonomous workflows.
 - Disable Wireless debugging and stop the service when it is not needed.
 
+During pairing, use split screen with Settings above ADB Remote so the temporary PIN remains visible.
+Treat that PIN and temporary pairing port as secrets: do not screenshot, copy into shared notes, or
+include them in diagnostics or public issues. Dismiss the pairing dialog after the attempt.
+
 ## Secret handling
 
 The app does not intentionally log runtime keys, opaque identifiers, ADB pairing data, command
@@ -53,6 +57,9 @@ not production deployment.
 - Cleartext application traffic is disabled in the manifest.
 - ADB connects only to `127.0.0.1` or `localhost` and the operator-supplied Wireless Debugging port.
 - The app does not configure DDNS, port forwarding, a VPN, or an inbound HTTP/MCP server.
+- A green Running state requires both a successful local ADB shell probe and an active tunnel poll.
+  Runtime ADB failures revoke that state immediately; tunnel connectivity alone is never presented
+  as end-to-end readiness.
 
 The client does not currently implement certificate pinning, mTLS, managed Cloudflare mode, OAuth
 rewriting, or `Retry-After`. Consult the README before assuming complete parity with the official

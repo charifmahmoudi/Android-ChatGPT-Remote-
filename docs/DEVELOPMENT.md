@@ -25,6 +25,10 @@ sequenceDiagram
     participant C as TunnelClient
     participant M as MCP transport
     participant A as Local adbd
+    T->>M: probe()
+    M->>A: id
+    A-->>M: shell result
+    M-->>T: ADB healthy
     T->>C: run()
     loop long poll
         C->>C: GET /poll
@@ -62,6 +66,15 @@ MCP/ADB bridge. Do not change it to `dataSync`: Android 15 limits that type to s
   operational failure.
 - Unknown command types are ignored and never reinterpreted as JSON-RPC.
 - ADB exceptions return a bounded MCP tool error containing only the exception class.
+- `RUNNING` is composite readiness. `TunnelService` publishes it only while both `tunnelConnected`
+  and `adbHealthy` are true.
+- Startup probes ADB before starting tunnel polling. A failed probe publishes `NEED_ADB_PORT` and
+  keeps the tunnel client stopped so tunnel availability cannot mask a broken local bridge.
+- Every successful tool call refreshes ADB health. Every ADB exception marks it unhealthy; when the
+  tunnel is connected the service immediately publishes `NEED_ADB_PORT` and updates its notification.
+- Health diagnostics use low-cardinality categories (`unreachable`, `timeout`, `authorization`, or
+  `protocol`) and `preflight`/`runtime` stages. Never add raw host, port, command, output, URL, or
+  exception messages to these events.
 
 ## Testing
 
@@ -87,7 +100,9 @@ device after dependency, target SDK, or Wireless Debugging changes.
 2. Update application, MCP server, and tunnel client versions consistently.
 3. Run unit tests, lint, and debug assembly in a clean environment.
 4. Test first-time pairing, wrong PIN, changed ADB port, wrong tunnel key, retry, process recreation,
-   activity closure, and explicit Stop on a physical device.
+   activity closure, and explicit Stop on a physical device. On Samsung, include the documented
+   split-screen flow with Settings above the app, verify a failed preflight never shows Running, and
+   verify a runtime ADB failure removes Running while the tunnel stays connected.
 5. Configure a private release signing key before distributing beyond development testing.
 
 ## Known gaps

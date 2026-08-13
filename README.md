@@ -17,6 +17,17 @@ It requires no Termux process, DDNS record, inbound port, or public phone endpoi
 - Provides four MCP tools: `adb_status`, `adb_shell`, `adb_packages`, and `adb_properties`.
 - Uses outbound HTTPS to OpenAI and loopback Wireless ADB; it opens no Internet-facing listener.
 
+## Dashboard
+
+Version 0.3.0 replaces the original raw parameter form with a persistent status dashboard. It shows
+the verified tunnel state, local configuration summary, current action, and guided setup instructions.
+The dashboard is only an Android activity: closing it does not stop the service. The persistent
+notification is required by Android for a long-running foreground service and opens the dashboard
+when tapped.
+
+The status becomes **Running** only after the tunnel endpoint answers a poll successfully. Until
+then it remains **Connecting**, so the dashboard does not claim that an unverified connection works.
+
 ## Architecture
 
 ```mermaid

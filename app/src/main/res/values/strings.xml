@@ -1,0 +1,34 @@
+<resources>
+    <string name="app_name">ADB Remote</string>
+    <string name="dashboard_eyebrow">ANDROID · SECURE MCP</string>
+    <string name="dashboard_title">ADB Remote</string>
+    <string name="dashboard_subtitle">The service continues when this dashboard is closed.</string>
+    <string name="service_status">SERVICE STATUS</string>
+    <string name="status_running">Running</string>
+    <string name="status_working">Connecting</string>
+    <string name="status_action_required">Setup required</string>
+    <string name="status_error">Connection error</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="configuration">CONFIGURATION</string>
+    <string name="tunnel_label">Secure tunnel</string>
+    <string name="adb_label">Local ADB</string>
+    <string name="not_configured">Not configured</string>
+    <string name="configured_tunnel">Configured · ••••••%1$s</string>
+    <string name="configured_adb">%1$s:%2$d</string>
+    <string name="setup_tunnel_title">Connect the secure tunnel</string>
+    <string name="setup_tunnel_help">Enter the tunnel ID and runtime key issued for Secure MCP Tunnel use. They are encrypted on this device.</string>
+    <string name="setup_pair_title">Pair Wireless ADB</string>
+    <string name="setup_pair_help">In Android Settings, open Wireless debugging → Pair device with pairing code. Keep that dialog open and enter its temporary port and 6-digit PIN below.</string>
+    <string name="setup_port_title">Set the ADB connection port</string>
+    <string name="setup_port_help">Return to the main Wireless debugging screen and enter the port shown under IP address &amp; port. This is not the temporary pairing port.</string>
+    <string name="tunnel_id_hint">Tunnel ID</string>
+    <string name="runtime_key_hint">Runtime key</string>
+    <string name="pairing_port_hint">Temporary pairing port</string>
+    <string name="pairing_pin_hint">6-digit pairing PIN</string>
+    <string name="adb_port_hint">ADB connection port</string>
+    <string name="save_continue">Save and continue</string>
+    <string name="pair_device">Pair device</string>
+    <string name="retry">Retry connection</string>
+    <string name="stop">Stop service</string>
+    <string name="version_format">Version %1$s · build %2$d</string>
+</resources>

@@ -1,0 +1,12 @@
+<resources>
+    <color name="navy_950">#08111F</color>
+    <color name="navy_900">#0E1A2B</color>
+    <color name="navy_800">#17263A</color>
+    <color name="slate_400">#94A3B8</color>
+    <color name="slate_200">#D7E0EA</color>
+    <color name="white">#FFFFFF</color>
+    <color name="cyan_400">#22D3EE</color>
+    <color name="green_400">#34D399</color>
+    <color name="amber_400">#FBBF24</color>
+    <color name="red_400">#FB7185</color>
+</resources>

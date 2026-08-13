@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.AndroidChatGPTRemote" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/cyan_400</item>
+        <item name="colorPrimaryVariant">@color/cyan_400</item>
+        <item name="colorOnPrimary">@color/navy_950</item>
+        <item name="colorSurface">@color/navy_900</item>
+        <item name="colorOnSurface">@color/white</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/navy_950</item>
+        <item name="android:navigationBarColor">@color/navy_950</item>
+        <item name="android:windowBackground">@color/navy_950</item>
+    </style>
+</resources>

@@ -45,6 +45,7 @@ class TunnelClient(
     private val transport: McpTransport,
     private val http: OkHttpClient = defaultHttpClient(),
     private val nowNanos: () -> Long = System::nanoTime,
+    private val onConnected: () -> Unit = {},
 ) {
     init {
         require(TUNNEL_ID.matches(tunnelId)) { "Invalid tunnel ID" }
@@ -58,10 +59,16 @@ class TunnelClient(
     suspend fun run() = coroutineScope {
         ownerJob = currentCoroutineContext().job
         var failures = 0
+        var connected = false
 
         while (isActive) {
             try {
-                pollOnce().forEach { received ->
+                val commands = pollOnce()
+                if (!connected) {
+                    connected = true
+                    onConnected()
+                }
+                commands.forEach { received ->
                     launch(Dispatchers.IO) {
                         workerPermits.withPermit { process(received) }
                     }

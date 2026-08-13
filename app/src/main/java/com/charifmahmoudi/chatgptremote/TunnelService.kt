@@ -111,9 +111,11 @@ class TunnelService : LifecycleService() {
                 tunnelId = config.tunnelId,
                 apiKey = config.apiKey,
                 transport = AdbMcpTransport(config.adbHost, config.adbPort),
+                onConnected = {
+                    publish(ServicePhase.RUNNING, "Tunnel connected · ADB MCP ready")
+                },
             )
             tunnelClient = client
-            publish(ServicePhase.RUNNING, "ADB MCP is available through the private tunnel")
             try {
                 client.run()
             } catch (error: CancellationException) {

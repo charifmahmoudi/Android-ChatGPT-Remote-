@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.charifmahmoudi.chatgptremote"
     compileSdk = 36
+    buildFeatures { buildConfig = true }
     defaultConfig {
         applicationId = "com.charifmahmoudi.chatgptremote"
         minSdk = 26

@@ -20,7 +20,24 @@ class AdbMcpTransport(
     private val host: String,
     private val port: Int,
     private val onDiagnostic: (String) -> Unit = {},
+    private val onHealthChanged: (Boolean, String) -> Unit = { _, _ -> },
 ) : McpTransport {
+    /** Verifies the actual adbd socket and shell service before the tunnel is advertised as ready. */
+    suspend fun probe() = withContext(Dispatchers.IO) {
+        onDiagnostic("probe start")
+        try {
+            Kadb.create(host, port).use { it.shell("id") }
+            onDiagnostic("probe complete")
+            onHealthChanged(true, "probe")
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            onDiagnostic("probe failed chain=${error.safeClassChain()}")
+            onHealthChanged(false, error.healthCategory())
+            throw error
+        }
+    }
+
     override suspend fun jsonRpc(
         payload: JsonElement,
         headers: Map<String, List<String>>,
@@ -82,11 +99,13 @@ class AdbMcpTransport(
                 }
             }
             onDiagnostic("tool complete type=${knownToolType(name)} output_chars=${text.length.coerceAtMost(MAX_OUTPUT_LENGTH)}")
+            onHealthChanged(true, "tool")
             toolResult(id, text.take(MAX_OUTPUT_LENGTH), isError = false)
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (e: Exception) {
             onDiagnostic("tool failed type=${knownToolType(name)} chain=${e.safeClassChain()}")
+            onHealthChanged(false, e.healthCategory())
             // Return only the exception class: messages may contain device or command details.
             toolResult(id, "ADB error: ${e.javaClass.simpleName}", isError = true)
         }
@@ -102,7 +121,18 @@ class AdbMcpTransport(
 
     private fun Throwable.safeClassChain() = generateSequence(this) { it.cause }
         .take(4)
-        .joinToString(">") { it.javaClass.simpleName.ifBlank { "Throwable" } }
+            .joinToString(">") { it.javaClass.simpleName.ifBlank { "Throwable" } }
+
+    /** Low-cardinality category suitable for diagnostics; never includes endpoint or exception text. */
+    private fun Throwable.healthCategory(): String {
+        val names = generateSequence(this) { it.cause }.take(6).map { it.javaClass.simpleName }.toSet()
+        return when {
+            names.any { it == "ConnectException" || it == "ErrnoException" } -> "unreachable"
+            names.any { it == "SocketTimeoutException" } -> "timeout"
+            names.any { it == "SecurityException" } -> "authorization"
+            else -> "protocol"
+        }
+    }
 
     private fun toolList() = buildJsonObject {
         putJsonArray("tools") {
@@ -146,7 +176,7 @@ class AdbMcpTransport(
 
     companion object {
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
-        private const val SERVER_VERSION = "0.4.0"
+        private const val SERVER_VERSION = "0.4.1"
         private const val MAX_COMMAND_LENGTH = 8_192
         private const val MAX_OUTPUT_LENGTH = 1_000_000
         private val JSON_HEADERS = mapOf("Content-Type" to listOf("application/json"))

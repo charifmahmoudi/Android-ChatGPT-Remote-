@@ -17,6 +17,8 @@ class TunnelService : LifecycleService() {
     private val secureConfig by lazy { SecureConfig(this) }
     private var tunnelClient: TunnelClient? = null
     private var worker: Job? = null
+    @Volatile private var tunnelConnected = false
+    @Volatile private var adbHealthy = false
 
     override fun onCreate() {
         super.onCreate()
@@ -109,20 +111,37 @@ class TunnelService : LifecycleService() {
 
     private fun startTunnel(config: AppConfig) {
         worker = lifecycleScope.launch {
-            publish(ServicePhase.CONNECTING, "Connecting Secure MCP Tunnel and local ADB…")
+            tunnelConnected = false
+            adbHealthy = false
+            publish(ServicePhase.CONNECTING, "Checking local ADB before connecting the secure tunnel…")
+            val transport = AdbMcpTransport(
+                config.adbHost,
+                config.adbPort,
+                onDiagnostic = { event -> DiagnosticLog.record("adb", event) },
+                onHealthChanged = { healthy, category -> onAdbHealthChanged(healthy, category) },
+            )
+            try {
+                transport.probe()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                // The probe already recorded a privacy-safe class chain and health category.
+                publish(ServicePhase.NEED_ADB_PORT, adbFailureMessage("preflight"))
+                return@launch
+            }
+
+            publish(ServicePhase.CONNECTING, "Local ADB verified · connecting secure tunnel…")
             val client = TunnelClient(
                 baseUrl = OPENAI_API,
                 tunnelId = config.tunnelId,
                 apiKey = config.apiKey,
-                transport = AdbMcpTransport(
-                    config.adbHost,
-                    config.adbPort,
-                    onDiagnostic = { event -> DiagnosticLog.record("adb", event) },
-                ),
+                transport = transport,
                 onConnected = {
-                    publish(ServicePhase.RUNNING, "Tunnel connected · ADB MCP ready")
+                    tunnelConnected = true
+                    publishReadiness()
                 },
                 onConnectionLost = {
+                    tunnelConnected = false
                     publish(ServicePhase.CONNECTING, "Tunnel interrupted · reconnecting automatically")
                 },
                 onDiagnostic = { event -> DiagnosticLog.record("tunnel", event) },
@@ -153,6 +172,31 @@ class TunnelService : LifecycleService() {
         worker = null
         tunnelClient?.stop()
         tunnelClient = null
+        tunnelConnected = false
+        adbHealthy = false
+    }
+
+    private fun onAdbHealthChanged(healthy: Boolean, category: String) {
+        val changed = adbHealthy != healthy
+        adbHealthy = healthy
+        if (changed) DiagnosticLog.record("health", "adb=${if (healthy) "healthy" else "failed"} category=$category")
+        if (healthy) {
+            publishReadiness()
+        } else if (tunnelConnected) {
+            publish(ServicePhase.NEED_ADB_PORT, adbFailureMessage("runtime"))
+        }
+    }
+
+    /** RUNNING is a composite state: both the remote tunnel and the local ADB bridge must be live. */
+    private fun publishReadiness() {
+        if (tunnelConnected && adbHealthy) {
+            publish(ServicePhase.RUNNING, "Secure tunnel connected · local ADB verified · MCP ready")
+        }
+    }
+
+    private fun adbFailureMessage(stage: String): String {
+        DiagnosticLog.record("health", "readiness failed component=adb stage=$stage tunnel=${if (tunnelConnected) "connected" else "pending"}")
+        return "Local ADB is unreachable. Keep Wireless debugging enabled, verify the connection port, then save it again."
     }
 
     private fun publish(phase: ServicePhase, message: String) {

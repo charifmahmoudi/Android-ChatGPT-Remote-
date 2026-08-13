@@ -44,6 +44,10 @@ the poll loop; hardens malformed MCP input handling and cancellation; and uses A
 `specialUse` foreground-service type. The previous `dataSync` type is limited to six background
 hours on Android 15 and is not appropriate for a persistent, user-controlled bridge.
 
+Version 0.4.1 reports **Running** only after the secure tunnel and a real ADB shell probe both
+succeed. A later ADB tool failure immediately removes the green state, updates the notification,
+and records privacy-safe health categories and failure stages in the copied diagnostics.
+
 ## Architecture
 
 ```mermaid

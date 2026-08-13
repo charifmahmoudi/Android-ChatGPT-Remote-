@@ -293,7 +293,7 @@ class TunnelClient(
 
     private companion object {
         const val CLIENT_NAME = "android-kotlin-tunnel-client"
-        const val CLIENT_VERSION = "0.4.0"
+        const val CLIENT_VERSION = "0.4.1"
         const val POLL_LIMIT = 25
         const val POLL_TIMEOUT_MS = 15_000
         const val MAX_CONCURRENT_COMMANDS = 4

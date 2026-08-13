@@ -27,7 +27,7 @@ class ProtocolTest {
             assertEquals("/v1/tunnels/tunnel_0123456789abcdef0123456789abcdef/poll?limit=25&timeout_ms=15000", request.path)
             assertEquals("Bearer runtime-key", request.getHeader("Authorization"))
             assertEquals("android-kotlin-tunnel-client", request.getHeader("X-Tunnel-Client-Name"))
-            assertEquals("0.4.0", request.getHeader("X-Tunnel-Client-Version"))
+            assertEquals("0.4.1", request.getHeader("X-Tunnel-Client-Version"))
         }
     }
 
@@ -49,9 +49,9 @@ class ProtocolTest {
         DiagnosticLog.clear()
         repeat(600) { DiagnosticLog.record("test", "event=$it") }
 
-        val report = DiagnosticLog.export("0.4.0", 6)
+        val report = DiagnosticLog.export("0.4.1", 7)
 
-        assertTrue(report.contains("Version: 0.4.0 (6)"))
+        assertTrue(report.contains("Version: 0.4.1 (7)"))
         assertTrue(report.contains("event=599"))
         assertTrue(!report.contains("event=0\n"))
         assertEquals(500, report.lineSequence().count { "[test]" in it })

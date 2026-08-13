@@ -110,7 +110,7 @@ class AdbMcpTransport(private val host: String, private val port: Int) : McpTran
 
     companion object {
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
-        private const val SERVER_VERSION = "0.3.1"
+        private const val SERVER_VERSION = "0.3.2"
         private const val MAX_COMMAND_LENGTH = 8_192
         private const val MAX_OUTPUT_LENGTH = 1_000_000
 

@@ -14,9 +14,9 @@ class ProtocolTest {
         DiagnosticLog.clear()
         repeat(300) { DiagnosticLog.record("test", "event=$it") }
 
-        val report = DiagnosticLog.export("0.3.1", 4)
+        val report = DiagnosticLog.export("0.3.2", 5)
 
-        assertTrue(report.contains("Version: 0.3.1 (4)"))
+        assertTrue(report.contains("Version: 0.3.2 (5)"))
         assertTrue(report.contains("event=299"))
         assertTrue(!report.contains("event=0\n"))
         assertEquals(250, report.lineSequence().count { "[test]" in it })

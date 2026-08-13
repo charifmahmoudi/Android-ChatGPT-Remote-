@@ -34,6 +34,10 @@ unsupported command events. It intentionally excludes credentials, tunnel and re
 pairing PINs and ports, JSON-RPC bodies, shell commands, ADB output, URLs, and exception messages.
 Logs reset when the application process is restarted.
 
+Version 0.3.2 moves synchronous tunnel HTTP polling to the I/O dispatcher. Earlier builds could
+transition from **Connecting** to **Error** immediately because the foreground service launched the
+poll loop from its main coroutine context.
+
 ## Architecture
 
 ```mermaid

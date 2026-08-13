@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -64,7 +65,8 @@ class TunnelClient(
 
         while (isActive) {
             try {
-                val commands = pollOnce()
+                // OkHttp's synchronous execute() must never run on the service's main dispatcher.
+                val commands = withContext(Dispatchers.IO) { pollOnce() }
                 if (!connected) {
                     connected = true
                     onDiagnostic("poll connected")
@@ -228,7 +230,7 @@ class TunnelClient(
 
     private companion object {
         const val CLIENT_NAME = "android-kotlin-tunnel-client"
-        const val CLIENT_VERSION = "0.3.1"
+        const val CLIENT_VERSION = "0.3.2"
         const val POLL_LIMIT = 25
         const val POLL_TIMEOUT_MS = 15_000
         const val MAX_CONCURRENT_COMMANDS = 4

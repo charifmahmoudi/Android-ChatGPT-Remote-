@@ -122,8 +122,10 @@ class TunnelService : LifecycleService() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: SecurityException) {
+                DiagnosticLog.record("tunnel", "stopped category=authorization")
                 publish(ServicePhase.NEED_TUNNEL, "Tunnel authorization failed; enter valid credentials")
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                DiagnosticLog.record("tunnel", "stopped category=${error.javaClass.simpleName}")
                 publish(ServicePhase.ERROR, "Background connection stopped; tap Retry")
             }
         }
